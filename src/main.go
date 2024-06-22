@@ -5,7 +5,13 @@ import (
    "fmt"
    "io"
    "os"
-   "strconv"
+   "strings"
+   "bytes"
+   "io/ioutil"
+   "regexp"
+
+   "golang.org/x/text/encoding/unicode"
+   "golang.org/x/text/transform"
 )
 
 // magic constants
@@ -45,8 +51,23 @@ func main() {
     // iterate over every mii entry in the database
     for i := header_length; i < mii_data_end_pos - mii_data_entry_length; i += mii_data_entry_length {
         mii_data := file_data[i:i+mii_data_entry_length]
-        
         fmt.Println("Extracting Mii data at:", i)
+        
+        // extract name bytes
+        mii_name_data := mii_data[2:22]
+        
+        // trashy boilerplate to convert UTF16-BE text to something golang can use
+        win16be := unicode.UTF16(unicode.BigEndian, unicode.IgnoreBOM)
+        utf16bom := unicode.BOMOverride(win16be.NewDecoder())
+        unicodeReader := transform.NewReader(bytes.NewReader(mii_name_data), utf16bom)
+        decoded, err := ioutil.ReadAll(unicodeReader)
+        regexr :=  regexp.MustCompile(`([^A-Za-z0-9.! ]+)`)
+        
+        mii_name := regexr.ReplaceAllString(strings.Replace(string(decoded), "\r\n", "\n", -1), "")
+        
+        if len(strings.TrimSpace(mii_name)) == 0 {
+            mii_name = "unknown_mii_" + string(i)
+        }
         
         // check to see if data is all-zeroes to prevent blank files from being outputted
         contains_nonzeroes := false
@@ -63,7 +84,7 @@ func main() {
         }
         
         // dump bytes to file
-        filename := strconv.Itoa(i) + ".mii"
+        filename := mii_name + ".mii"
         err = os.WriteFile(filename, mii_data, 0666)
         if err != nil {
             fmt.Println(err)
